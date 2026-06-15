@@ -2,11 +2,7 @@ import streamlit as st
 import re
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-
-def clean_text(text):
-    text = text.lower()
-    text = re.sub(r'[^\w\s]', '', text)
-    return text
+from src.preprocessing import clean_text
 
 titles = ["Your Name", "Attack on Titan", "Spirited Away", "Death Note"]
 raw_descriptions = [
