@@ -40,6 +40,29 @@ def init_db():
     conn.commit()
     conn.close()
 
+
+def save_feedback(title_id, feedback_type):
+    conn = sqlite3.connect('moodwatch.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO feedback (title_id, feedback_type, timestamp)
+        VALUES (?, ?, ?)
+    ''', (title_id, feedback_type, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+    conn.commit()
+    conn.close()
+
+
+def load_feedback():
+    conn = sqlite3.connect('moodwatch.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT title_id, feedback_type FROM feedback')
+    rows = cursor.fetchall()
+    conn.close()
+    liked = [r[0] for r in rows if r[1] == 'like']
+    disliked = [r[0] for r in rows if r[1] == 'dislike']
+    return liked, disliked
+
+
 if __name__ == "__main__":
     init_db()
     print("DB initialized successfully")
