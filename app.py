@@ -1,6 +1,6 @@
 import streamlit as st
 from src.recommender import recommend, get_results
-from src.apis import get_movie_details, get_series_details, get_watch_providers
+from src.apis import get_movie_details, get_series_details, get_watch_providers, get_anime_details
 from src.sentiment import get_sentiment
 from src.db import save_feedback, init_db
 
@@ -14,13 +14,13 @@ query = st.text_input("What's your mood right now?", placeholder="e.g. something
 
 col1, col2, col3, col4, col5 = st.columns(5)
 with col1:
-    filter_all = st.button("🎬 All")
+    filter_all = st.button("All")
 with col2:
-    filter_movies = st.button("🎥 Movies")
+    filter_movies = st.button("Movies")
 with col3:
-    filter_series = st.button("📺 Series")
+    filter_series = st.button("Series")
 with col4:
-    filter_anime = st.button("⛩️ Anime")
+    filter_anime = st.button("Anime")
 with col5:
     pass
 
@@ -65,6 +65,13 @@ if query:
                 result['poster_url'] = tmdb_data.get('poster_url')
                 result['release_year'] = tmdb_data.get('release_year', result['release_year'])
 
+        elif result['content_type'] == 'anime':
+            from src.apis import get_anime_details
+            mal_id = result['id'].replace('anime_', '')
+            anime_data = get_anime_details(mal_id)
+            if anime_data:
+                result['poster_url'] = anime_data.get('poster_url')
+
         tmdb_id = int(result['id']) if result['content_type'] == 'movie' else None
         polarity, snippets = get_sentiment(
             result['id'],
@@ -83,7 +90,7 @@ if query:
         else:
             providers, watch_link = [], None
 
-        with st.expander(f"**{result['title']}** — {round(final_score * 100, 1)}% Match", expanded=False):
+        with st.expander(f"**{result['title']}** — {round(min(final_score * 150, 99), 1)}% Match", expanded=False):
             col1, col2 = st.columns([1, 3])
 
             with col1:

@@ -6,6 +6,7 @@ from sentence_transformers import SentenceTransformer
 from src.db import load_feedback
 from src.preprocessing import clean_text
 import os 
+import json
 
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -40,8 +41,19 @@ vectorizer = TfidfVectorizer(max_features=5000)
 tfidf_matrix = vectorizer.fit_transform(all_combined)
 
 
-movie_embeddings = model.encode(movies_df['combined'].tolist(), show_progress_bar=True)
-anime_embeddings = model.encode(anime_df['combined'].tolist(), show_progress_bar=True)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MOVIE_EMB_PATH = os.path.join(BASE_DIR, 'data', 'movie_embeddings.npy')
+ANIME_EMB_PATH = os.path.join(BASE_DIR, 'data', 'anime_embeddings.npy')
+
+if os.path.exists(MOVIE_EMB_PATH) and os.path.exists(ANIME_EMB_PATH):
+    movie_embeddings = np.load(MOVIE_EMB_PATH)
+    anime_embeddings = np.load(ANIME_EMB_PATH)
+else:
+    movie_embeddings = model.encode(movies_df['combined'].tolist(), show_progress_bar=True)
+    anime_embeddings = model.encode(anime_df['combined'].tolist(), show_progress_bar=True)
+    np.save(MOVIE_EMB_PATH, movie_embeddings)
+    np.save(ANIME_EMB_PATH, anime_embeddings)
+
 all_embeddings = np.vstack([movie_embeddings, anime_embeddings])
 
 
@@ -119,7 +131,7 @@ def get_results(top_indices, final_scores, all_ids):
                 "title": row['title'],
                 "content_type": "movie",
                 "description": row['overview'],
-                "genres": row['genres'],
+                "genres": ", ".join([g['name'] for g in json.loads(row['genres'])]) if row['genres'] else "N/A",
                 "rating": row['vote_average'],
                 "release_year": str(row['release_date'])[:4] if pd.notna(row['release_date']) else "N/A",
                 "tfidf_score": round(score, 4),
