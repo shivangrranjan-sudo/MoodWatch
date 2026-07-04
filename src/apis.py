@@ -84,3 +84,17 @@ def get_anime_details(mal_id):
         "release_year": str(d.get("year")) if d.get("year") else None,
     }
 
+
+#TRAILER ------ 
+
+def get_movie_trailer(tmdb_id):
+    url = f"{TMDB_BASE_URL}/movie/{tmdb_id}/videos"
+    params = {"api_key": TMDB_API_KEY, "language": "en-US"}
+    r = requests.get(url, params=params)
+    if r.status_code != 200:
+        return None
+    videos = r.json().get("results", [])
+    for v in videos:
+        if v.get("type") == "Trailer" and v.get("site") == "YouTube":
+            return f"https://www.youtube.com/watch?v={v['key']}"
+    return None
