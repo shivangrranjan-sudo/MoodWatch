@@ -911,20 +911,37 @@
 
     // ── Feedback ──
     async function sendFeedback(titleId, type, btn) {
-        btn.classList.add('active');
-        const sibling = btn.parentElement.querySelector(type === 'like' ? '.btn-dislike' : '.btn-like');
-        if (sibling) sibling.style.opacity = '0.3';
+    const parent = btn.parentElement;
+    const likeBtn = parent.querySelector('.btn-like');
+    const dislikeBtn = parent.querySelector('.btn-dislike');
 
-        try {
-            await fetch('/feedback', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title_id: titleId, feedback_type: type })
-            });
-        } catch (e) {
-            console.error('Feedback failed:', e);
-        }
+    // If already active, undo it
+    if (btn.classList.contains('active')) {
+        btn.classList.remove('active');
+        likeBtn.style.opacity = '1';
+        dislikeBtn.style.opacity = '1';
+        return;
     }
+
+    // Clear both first
+    likeBtn.classList.remove('active');
+    dislikeBtn.classList.remove('active');
+    likeBtn.style.opacity = '1';
+    dislikeBtn.style.opacity = '1';
+
+    // Set the clicked one active
+    btn.classList.add('active');
+
+    try {
+        await fetch('/feedback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title_id: titleId, feedback_type: type })
+        });
+    } catch (e) {
+        console.error('Feedback failed:', e);
+    }
+}
 
     // ── Helpers ──
     function capitalize(str) { return str.charAt(0).toUpperCase() + str.slice(1); }
