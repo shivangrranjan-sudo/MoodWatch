@@ -64,10 +64,10 @@ gamma = 0.25
 def rocchio_update(query_vec, relevant_vecs, non_relevant_vecs):
     new_query = alpha * query_vec
 
-    if relevant_vecs:
+    if len(relevant_vecs) > 0:
         new_query += beta * np.mean(relevant_vecs, axis=0)
 
-    if non_relevant_vecs:
+    if len(non_relevant_vecs) > 0:
         new_query -= gamma * np.mean(non_relevant_vecs, axis=0)
 
     return new_query
