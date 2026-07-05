@@ -40,15 +40,16 @@
 
         .bg-img {
             position: absolute;
-            width: 150%;
+            width: 200%;
             height: 150%;
             top: -25%;
             left: -25%;
-            background-image: url('/static/MoodWatch_jjk.jfif');
-            background-size: cover;
-            background-position: center center;
-            transform: rotate(90deg);
-            filter: blur(3px) brightness(0.25) saturate(1.6);
+            background-image: url('/static/MoodWatch_Yn.jfif');
+            background-size: 60%;
+            background-repeat: no-repeat;
+            background-position: 30% center;
+            transform: rotate(0deg);
+            filter: blur(2px) brightness(0.60) saturate(1.6);
         }
 
         .bg-overlay {
@@ -826,8 +827,8 @@
         const scoreWidth = Math.min(scorePct, 99);
 
         // Trailer button
-        const trailerBtn = result.trailer_url
-            ? `<a class="btn-trailer" href="${result.trailer_url}" target="_blank" onclick="event.stopPropagation()"><i class="ti ti-player-play"></i> Trailer</a>`
+        const trailerBtn = result.content_type === 'movie'
+            ? `<a class="btn-trailer disabled" data-tmdb-id="${result.id}" data-fetched="false" onclick="event.stopPropagation()"><i class="ti ti-player-play"></i> Trailer</a>`
             : `<span class="btn-trailer disabled"><i class="ti ti-player-play"></i> Trailer</span>`;
 
         // Providers
@@ -902,12 +903,28 @@
     }
 
     // ── Toggle card expand ──
-    function toggleCard(idx) {
-        const panel = document.getElementById(`exp-${idx}`);
-        const isOpen = panel.classList.contains('open');
-        document.querySelectorAll('.expanded-panel').forEach(p => p.classList.remove('open'));
-        if (!isOpen) panel.classList.add('open');
+    async function toggleCard(idx) {
+    const panel = document.getElementById(`exp-${idx}`);
+    const isOpen = panel.classList.contains('open');
+    document.querySelectorAll('.expanded-panel').forEach(p => p.classList.remove('open'));
+    if (!isOpen) {
+        panel.classList.add('open');
+        // fetch trailer lazily if not already fetched
+        const trailerBtn = panel.closest('.result-card').querySelector('.btn-trailer');
+        if (trailerBtn && trailerBtn.dataset.fetched !== 'true') {
+            const tmdbId = trailerBtn.dataset.tmdbId;
+            if (tmdbId) {
+                const res = await fetch(`/trailer/${tmdbId}`);
+                const data = await res.json();
+                if (data.trailer_url) {
+                    trailerBtn.href = data.trailer_url;
+                    trailerBtn.classList.remove('disabled');
+                }
+            }
+            trailerBtn.dataset.fetched = 'true';
+        }
     }
+}
 
     // ── Feedback ──
     async function sendFeedback(titleId, type, btn) {
