@@ -66,5 +66,3 @@ def load_feedback():
 if __name__ == "__main__":
     init_db()
     print("DB initialized successfully")
-
-
