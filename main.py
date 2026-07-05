@@ -4,6 +4,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
+
 load_dotenv()
 
 app = FastAPI()
@@ -115,6 +116,8 @@ def search_full(body: SearchRequest):
     from src.apis import get_movie_details, get_anime_details, get_watch_providers
     from src.sentiment import get_sentiment
     import math
+    from src.apis import get_movie_details, get_anime_details, get_watch_providers, get_movie_trailer
+
 
     def clean(val):
         if isinstance(val, float) and math.isnan(val):
@@ -146,6 +149,8 @@ def search_full(body: SearchRequest):
             if anime_data:
                 result['poster_url'] = anime_data.get('poster_url')
             result['providers'] = []
+            result['trailer_url'] = None
+
 
         # fix release year formatting
         if result.get('release_year'):
