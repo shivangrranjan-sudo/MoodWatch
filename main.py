@@ -3,6 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
+import time
 
 
 load_dotenv()
@@ -23,6 +24,8 @@ def index():
 class SearchRequest(BaseModel):
     query: str
     filter: str = "all"
+    page: int = 0
+    page_size: int = 10
 
 @app.post("/search")
 def search(body: SearchRequest):
@@ -113,28 +116,37 @@ def sentiment(content_type: str, id: str, title: str):
 @app.post("/search-full")
 def search_full(body: SearchRequest):
     from src.recommender import recommend, get_results
-    from src.apis import get_movie_details, get_anime_details, get_watch_providers
+    from src.apis import get_movie_details, get_anime_details, get_watch_providers, get_movie_trailer
     from src.sentiment import get_sentiment
     import math
-    from src.apis import get_movie_details, get_anime_details, get_watch_providers, get_movie_trailer
-
+    import time
 
     def clean(val):
         if isinstance(val, float) and math.isnan(val):
             return None
         return val
 
-    # Step 1 — get base results
-    top_indices, final_scores, all_ids = recommend(body.query, content_filter=body.filter)
-    results = get_results(top_indices, final_scores, all_ids)
+    # Step 1 — ML pipeline (fast, gets all 50)
+    t0 = time.time()
 
-    # Step 2 — enrich each result
+    top_indices, final_scores, all_ids = recommend(body.query, content_filter=body.filter, top_n=50)
+    results = get_results(top_indices, final_scores, all_ids)
+    print(f"ML pipeline: {time.time() - t0:.2f}s")
+
+
+    # Step 2 — paginate BEFORE enrichment
+    start = body.page * body.page_size
+    end = start + body.page_size
+    page_results = results[start:end]
+    total = len(results)
+    total_pages = (total + body.page_size - 1) // body.page_size
+
+    # Step 3 — enrich only current page
+    t1 = time.time()
     enriched = []
-    for result in results:
-        # clean base fields
+    for result in page_results:
         result = {k: clean(v) for k, v in result.items()}
 
-        # poster + providers
         if result['content_type'] == 'movie':
             tmdb_data = get_movie_details(result['id'])
             if tmdb_data:
@@ -142,21 +154,19 @@ def search_full(body: SearchRequest):
                 result['release_year'] = tmdb_data.get('release_year')
             providers, _ = get_watch_providers(result['id'], 'movie')
             result['providers'] = providers or []
+            result['trailer_url'] = get_movie_trailer(result['id'])
 
         elif result['content_type'] == 'anime':
             mal_id = result['id'].replace('anime_', '')
             anime_data = get_anime_details(mal_id)
             if anime_data:
                 result['poster_url'] = anime_data.get('poster_url')
+                result['trailer_url'] = anime_data.get('trailer_url')
             result['providers'] = []
-            result['trailer_url'] = None
 
-
-        # fix release year formatting
         if result.get('release_year'):
             result['release_year'] = str(result['release_year']).replace('.0', '')
 
-        # sentiment
         tmdb_id = int(result['id']) if result['content_type'] == 'movie' else None
         polarity, snippets = get_sentiment(
             result['id'], result['title'],
@@ -166,25 +176,37 @@ def search_full(body: SearchRequest):
         result['polarity'] = clean(polarity)
         result['snippets'] = snippets or []
 
-        # final blended score
         result['final_score'] = (
             round(0.7 * result['tfidf_score'] + 0.3 * polarity, 4)
             if polarity is not None
             else result['tfidf_score']
         )
-
         result['match_pct'] = round(min(result['final_score'] * 150, 99), 1)
-
         enriched.append(result)
 
-    # Step 3 — sort by final score
+    print(f"Enrichment total: {time.time() - t1:.2f}s")
+
+    # Step 4 — sort current page by final score
     enriched = sorted(enriched, key=lambda x: x['final_score'], reverse=True)
 
-    return {"results": enriched}
+    t2 = time.time()
+    print(f"Time before building response: {t2 - t0:.2f}s")
 
+    response_data = {
+        "results": enriched,
+        "page": body.page,
+        "total_pages": total_pages,
+        "total": total
+    }
+
+    print(f"Time to build dict: {time.time() - t2:.4f}s")
+
+    return response_data
 
 @app.get("/trailer/{tmdb_id}")
 def get_trailer(tmdb_id: str):
     from src.apis import get_movie_trailer
     trailer_url = get_movie_trailer(tmdb_id)
     return {"trailer_url": trailer_url}
+
+
