@@ -677,12 +677,12 @@
 </div>
 
 <script>
-    // ── State ──
+       // ── State ──
+    let currentQuery = '';
     let currentFilter = 'all';
-    let topbarFilter = 'all';
-    let allResults = [];
+    let pageCache = {};  // stores prefetched pages
+    let totalPages = 1;
     let currentPage = 0;
-    const PAGE_SIZE = 10;
 
     // ── Filter buttons ──
     function setFilter(btn, filter) {
@@ -702,13 +702,13 @@
         const query = document.getElementById('landingInput').value.trim();
         if (!query) return;
         document.getElementById('topbarInput').value = query;
-        fetchResults(query, currentFilter);
+        fetchResults(query, currentFilter, 0);
     }
 
     function doSearchAgain() {
         const query = document.getElementById('topbarInput').value.trim();
         if (!query) return;
-        fetchResults(query, topbarFilter);
+        fetchResults(query, topbarFilter, 0);
     }
 
     function goHome() {
@@ -720,41 +720,48 @@
     }
 
     // ── API call ──
-    async function fetchResults(query, filter) {
-        // Switch to results page and show loading
-        document.getElementById('landing-page').style.display = 'none';
-        document.getElementById('results-page').style.display = 'block';
-        document.getElementById('pagination').style.display = 'none';
 
-        document.getElementById('resultsContainer').innerHTML = `
-            <div class="loading-state">
-                <div class="spinner"></div>
-                <span>Finding your next watch...</span>
-            </div>
-        `;
+    async function fetchResults(query, filter, page = 0) {
+        currentQuery = query;
+        currentFilter = filter;
+        currentPage = page;
+
+        // show loading only on first page
+        if (page === 0) {
+            document.getElementById('landing-page').style.display = 'none';
+            document.getElementById('results-page').style.display = 'block';
+            document.getElementById('pagination').style.display = 'none';
+            pageCache = {};  // clear cache on new search
+            document.getElementById('resultsContainer').innerHTML = `
+                <div class="loading-state">
+                    <div class="spinner"></div>
+                    <span>Finding your next watch...</span>
+                </div>
+            `;
+        }
+
+        // check cache first
+        if (pageCache[page]) {
+            renderPage(pageCache[page], page);
+            prefetchPage(page + 1);
+            return;
+        }
 
         try {
             const res = await fetch('/search-full', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query, filter })
+                body: JSON.stringify({ query, filter, page, page_size: 10 })
             });
 
             const data = await res.json();
-            allResults = data.results || [];
-            currentPage = 0;
+            totalPages = data.total_pages;
+            console.log('Backend says total_pages:', data.total_pages, '| total:', data.total);
+            pageCache[page] = data;
+            renderPage(data, page);
 
-            if (allResults.length === 0) {
-                document.getElementById('resultsContainer').innerHTML = `
-                    <div class="empty-state">
-                        <i class="ti ti-mood-sad" style="font-size:32px"></i>
-                        <span>No results found. Try a different mood.</span>
-                    </div>
-                `;
-                return;
-            }
-
-            renderPage();
+            // prefetch next page in background
+            prefetchPage(page + 1);
 
         } catch (err) {
             document.getElementById('resultsContainer').innerHTML = `
@@ -766,32 +773,53 @@
         }
     }
 
-    // ── Render current page ──
-    function renderPage() {
-        const start = currentPage * PAGE_SIZE;
-        const end = start + PAGE_SIZE;
-        const pageResults = allResults.slice(start, end);
-        const totalPages = Math.ceil(allResults.length / PAGE_SIZE);
+    async function prefetchPage(page) {
+        if (page >= totalPages || pageCache[page]) return;
+        try {
+            const res = await fetch('/search-full', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: currentQuery, filter: currentFilter, page, page_size: 10 })
+            });
+            const data = await res.json();
+            pageCache[page] = data;
+        } catch (e) {
+            console.error('Prefetch failed:', e);
+        }
+    }
 
-        const label = document.createElement('p');
-        label.className = 'results-label';
-        label.textContent = `Results for "${document.getElementById('topbarInput').value}" — ${allResults.length} found`;
+    function renderPage(data, page) {
+        const results = data.results || [];
+
+        if (results.length === 0 && page === 0) {
+            document.getElementById('resultsContainer').innerHTML = `
+                <div class="empty-state">
+                    <i class="ti ti-mood-sad" style="font-size:32px"></i>
+                    <span>No results found. Try a different mood.</span>
+                </div>
+            `;
+            return;
+        }
 
         const container = document.getElementById('resultsContainer');
         container.innerHTML = '';
+
+        const label = document.createElement('p');
+        label.className = 'results-label';
+        label.textContent = `Results for "${currentQuery}" — ${data.total} found`;
         container.appendChild(label);
 
-        pageResults.forEach((result, idx) => {
-            container.appendChild(buildCard(result, start + idx));
+        results.forEach((result, idx) => {
+            container.appendChild(buildCard(result, page * 10 + idx));
         });
 
-        // Pagination
+        // pagination
         const pag = document.getElementById('pagination');
-        if (totalPages > 1) {
+        if (data.total_pages > 1) {
             pag.style.display = 'flex';
-            document.getElementById('prevBtn').disabled = currentPage === 0;
-            document.getElementById('nextBtn').disabled = currentPage >= totalPages - 1;
-            document.getElementById('pageInfo').textContent = `Page ${currentPage + 1} of ${totalPages}`;
+            document.getElementById('prevBtn').disabled = page === 0;
+            document.getElementById('nextBtn').disabled = page >= data.total_pages - 1;
+            document.getElementById('pageInfo').textContent = `Page ${page + 1} of ${data.total_pages}`;
         } else {
             pag.style.display = 'none';
         }
@@ -800,9 +828,12 @@
     }
 
     function changePage(dir) {
-        currentPage += dir;
-        renderPage();
+        const newPage = currentPage + dir;
+        fetchResults(currentQuery, currentFilter, newPage);
     }
+
+
+
 
     // ── Build card ──
     function buildCard(result, idx) {
