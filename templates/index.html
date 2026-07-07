@@ -680,6 +680,7 @@
        // ── State ──
     let currentQuery = '';
     let currentFilter = 'all';
+    let topbarFilter = 'all';
     let pageCache = {};  // stores prefetched pages
     let totalPages = 1;
     let currentPage = 0;
@@ -792,10 +793,11 @@
         const results = data.results || [];
 
         if (results.length === 0 && page === 0) {
+            const message = data.message || 'No results found. Try a different mood.';
             document.getElementById('resultsContainer').innerHTML = `
                 <div class="empty-state">
                     <i class="ti ti-mood-sad" style="font-size:32px"></i>
-                    <span>No results found. Try a different mood.</span>
+                    <span>${escHtml(message)}</span>
                 </div>
             `;
             return;
