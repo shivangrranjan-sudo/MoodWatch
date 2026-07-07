@@ -1,9 +1,9 @@
 import requests
 import json
 from datetime import datetime, timedelta
-import sqlite3
 import os
 from dotenv import load_dotenv
+from src.db import get_connection
 
 load_dotenv()
 
@@ -69,8 +69,8 @@ def fetch_omdb_rating(title, tmdb_id=None, content_type="movie"):
     
     
 
-def get_sentiment(title_id, title, tmdb_id=None, content_type="movie"):
-    conn = sqlite3.connect('moodwatch.db')
+def get_sentiment(title_id, title, tmdb_id=None, content_type="movie", fetch_missing=True):
+    conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute('SELECT polarity, review_snippets, cached_date FROM sentiment_cache WHERE title_id = ?', (title_id,))
@@ -79,12 +79,33 @@ def get_sentiment(title_id, title, tmdb_id=None, content_type="movie"):
     if row:
         cached_date = datetime.strptime(row[2], "%Y-%m-%d %H:%M:%S")
         if datetime.now() - cached_date < timedelta(days=30):
+            print(f"CACHE HIT (sentiment): {title_id}")
             conn.close()
             return row[0], json.loads(row[1])
+
+    
+    print(f"CACHE MISS (sentiment): {title_id}")
+    if not fetch_missing:
+        conn.close()
+        return None, []
+
+    if content_type == "anime":
+        cursor.execute('''
+            INSERT OR REPLACE INTO sentiment_cache (title_id, polarity, review_snippets, cached_date)
+            VALUES (?, ?, ?, ?)
+        ''', (title_id, None, json.dumps([]), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        conn.commit()
+        conn.close()
+        return None, []
 
     polarity, snippets = fetch_omdb_rating(title, tmdb_id, content_type)
 
     if polarity is None:
+        cursor.execute('''
+            INSERT OR REPLACE INTO sentiment_cache (title_id, polarity, review_snippets, cached_date)
+            VALUES (?, ?, ?, ?)
+        ''', (title_id, None, json.dumps([]), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        conn.commit()
         conn.close()
         return None, []
 
