@@ -1,8 +1,25 @@
 import sqlite3
 from datetime import datetime
+from pathlib import Path
+
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+DB_PATH = BASE_DIR / "moodwatch.db"
+
+
+def get_connection():
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn.execute("PRAGMA busy_timeout = 10000")
+    return conn
+
+
+def _ensure_column(cursor, table, column, definition):
+    columns = {row[1] for row in cursor.execute(f"PRAGMA table_info({table})")}
+    if column not in columns:
+        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 def init_db():
-    conn = sqlite3.connect('moodwatch.db')
+    conn = get_connection()
     cursor = conn.cursor()
     
     cursor.execute('''
@@ -16,6 +33,8 @@ def init_db():
             rating REAL,
             runtime TEXT,
             watch_providers TEXT,
+            release_year TEXT,
+            trailer_url TEXT,
             cached_date TEXT DEFAULT (datetime('now'))
         )
     ''')
@@ -36,13 +55,16 @@ def init_db():
             timestamp TEXT DEFAULT (datetime('now'))
         )
     ''')
+
+    _ensure_column(cursor, "metadata_cache", "release_year", "TEXT")
+    _ensure_column(cursor, "metadata_cache", "trailer_url", "TEXT")
     
     conn.commit()
     conn.close()
 
 
 def save_feedback(title_id, feedback_type):
-    conn = sqlite3.connect('moodwatch.db')
+    conn = get_connection()
     cursor = conn.cursor()
     cursor.execute('''
         INSERT INTO feedback (title_id, feedback_type, timestamp)
@@ -53,7 +75,7 @@ def save_feedback(title_id, feedback_type):
 
 
 def load_feedback():
-    conn = sqlite3.connect('moodwatch.db')
+    conn = get_connection()
     cursor = conn.cursor()
     cursor.execute('SELECT title_id, feedback_type FROM feedback')
     rows = cursor.fetchall()
