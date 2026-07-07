@@ -1,9 +1,9 @@
 import os
 import requests
 from dotenv import load_dotenv
-import sqlite3
 import json
 from datetime import datetime, timedelta
+from src.db import get_connection
 
 load_dotenv()
 
@@ -13,8 +13,15 @@ JIKAN_BASE_URL = "https://api.jikan.moe/v4"
 
 #TMDB -------
 
+def _safe_get(url, **kwargs):
+    try:
+        return requests.get(url, timeout=5, **kwargs)
+    except requests.RequestException as exc:
+        print(f"API request failed: {url} ({exc})")
+        return None
+
 def get_movie_details(tmdb_id):
-    conn = sqlite3.connect('moodwatch.db')
+    conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute('SELECT title, poster_url, description, genres, rating, runtime, release_year, cached_date FROM metadata_cache WHERE id = ?', (str(tmdb_id),))
@@ -23,6 +30,7 @@ def get_movie_details(tmdb_id):
     if row:
         cached_date = datetime.strptime(row[7], "%Y-%m-%d %H:%M:%S")
         if datetime.now() - cached_date < timedelta(days=30):
+            print(f"CACHE HIT: {tmdb_id}")
             conn.close()
             return {
                 "id": str(tmdb_id),
@@ -36,10 +44,11 @@ def get_movie_details(tmdb_id):
                 "content_type": "movie"
             }
 
+    print(f"CACHE MISS: {tmdb_id}")
     url = f"{TMDB_BASE_URL}/movie/{tmdb_id}"
     params = {"api_key": TMDB_API_KEY, "language": "en-US"}
-    r = requests.get(url, params=params)
-    if r.status_code != 200:
+    r = _safe_get(url, params=params)
+    if not r or r.status_code != 200:
         conn.close()
         return None
     d = r.json()
@@ -74,7 +83,7 @@ def get_movie_details(tmdb_id):
 
 
 def get_series_details(tmdb_id):
-    conn = sqlite3.connect('moodwatch.db')
+    conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute('SELECT title, poster_url, description, genres, rating, runtime, release_year, cached_date FROM metadata_cache WHERE id = ?', (f"tv_{tmdb_id}",))
@@ -98,8 +107,8 @@ def get_series_details(tmdb_id):
 
     url = f"{TMDB_BASE_URL}/tv/{tmdb_id}"
     params = {"api_key": TMDB_API_KEY, "language": "en-US"}
-    r = requests.get(url, params=params)
-    if r.status_code != 200:
+    r = _safe_get(url, params=params)
+    if not r or r.status_code != 200:
         conn.close()
         return None
     d = r.json()
@@ -133,7 +142,7 @@ def get_series_details(tmdb_id):
 
 
 def get_watch_providers(tmdb_id, content_type="movie"):
-    conn = sqlite3.connect('moodwatch.db')
+    conn = get_connection()
     cursor = conn.cursor()
     
     cache_id = f"{content_type}_{tmdb_id}"
@@ -143,15 +152,17 @@ def get_watch_providers(tmdb_id, content_type="movie"):
     if row and row[0]:
         cached_date = datetime.strptime(row[1], "%Y-%m-%d %H:%M:%S")
         if datetime.now() - cached_date < timedelta(days=30):
+            print(f"CACHE HIT (Watch provider): {tmdb_id}")
             conn.close()
             providers = json.loads(row[0])
             return providers, None
     
     endpoint = "movie" if content_type == "movie" else "tv"
+    print(f"CACHE MISS (providers): {tmdb_id}")
     url = f"{TMDB_BASE_URL}/{endpoint}/{tmdb_id}/watch/providers"
     params = {"api_key": TMDB_API_KEY}
-    r = requests.get(url, params=params)
-    if r.status_code != 200:
+    r = _safe_get(url, params=params)
+    if not r or r.status_code != 200:
         conn.close()
         return [], None
     results = r.json().get("results", {})
@@ -171,7 +182,7 @@ def get_watch_providers(tmdb_id, content_type="movie"):
 # JIKAN ---------
 
 def get_anime_details(mal_id):
-    conn = sqlite3.connect('moodwatch.db')
+    conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute('SELECT title, poster_url, description, genres, rating, runtime, release_year, trailer_url, cached_date FROM metadata_cache WHERE id = ?', (f"anime_{mal_id}",))
@@ -195,8 +206,8 @@ def get_anime_details(mal_id):
             }
 
     url = f"{JIKAN_BASE_URL}/anime/{mal_id}"
-    r = requests.get(url)
-    if r.status_code != 200:
+    r = _safe_get(url)
+    if not r or r.status_code != 200:
         conn.close()
         return None
     d = r.json().get("data", {})
@@ -234,7 +245,7 @@ def get_anime_details(mal_id):
 #TRAILER ------ 
 
 def get_movie_trailer(tmdb_id):
-    conn = sqlite3.connect('moodwatch.db')
+    conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute('SELECT trailer_url FROM metadata_cache WHERE id = ?', (str(tmdb_id),))
@@ -246,8 +257,8 @@ def get_movie_trailer(tmdb_id):
 
     url = f"{TMDB_BASE_URL}/movie/{tmdb_id}/videos"
     params = {"api_key": TMDB_API_KEY, "language": "en-US"}
-    r = requests.get(url, params=params)
-    if r.status_code != 200:
+    r = _safe_get(url, params=params)
+    if not r or r.status_code != 200:
         conn.close()
         return None
     videos = r.json().get("results", [])
