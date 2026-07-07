@@ -3,10 +3,16 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
+from src.apis import get_anime_details, get_movie_details, get_movie_trailer, get_watch_providers
+from src.db import init_db, save_feedback
+from src.recommender import get_results, recommend
+from src.sentiment import get_sentiment
+import math
 import time
 
 
 load_dotenv()
+init_db()
 
 app = FastAPI()
 
@@ -29,9 +35,6 @@ class SearchRequest(BaseModel):
 
 @app.post("/search")
 def search(body: SearchRequest):
-    from src.recommender import recommend, get_results
-    import math
-    
     top_indices, final_scores, all_ids = recommend(body.query, content_filter=body.filter)
     results = get_results(top_indices, final_scores, all_ids)
     
@@ -56,16 +59,12 @@ class FeedbackRequest(BaseModel):
 
 @app.post("/feedback")
 def feedback(body: FeedbackRequest):
-    from src.db import save_feedback
     save_feedback(body.title_id, body.feedback_type)
     return {"status": "ok"}
 
 
 @app.get("/enrich/{content_type}/{id}")
 def enrich(content_type: str, id: str):
-    from src.apis import get_movie_details, get_anime_details, get_watch_providers
-    import math
-
     def clean(val):
         if isinstance(val, float) and math.isnan(val):
             return None
@@ -93,9 +92,6 @@ def enrich(content_type: str, id: str):
 
 @app.get("/sentiment/{content_type}/{id}")
 def sentiment(content_type: str, id: str, title: str):
-    from src.sentiment import get_sentiment
-    import math
-
     def clean(val):
         if isinstance(val, float) and math.isnan(val):
             return None
@@ -115,11 +111,8 @@ def sentiment(content_type: str, id: str, title: str):
 
 @app.post("/search-full")
 def search_full(body: SearchRequest):
-    from src.recommender import recommend, get_results
-    from src.apis import get_movie_details, get_anime_details, get_watch_providers, get_movie_trailer
-    from src.sentiment import get_sentiment
-    import math
-    import time
+    request_start = time.time()
+    print(f"REQUEST STARTED")
 
     def clean(val):
         if isinstance(val, float) and math.isnan(val):
@@ -139,7 +132,7 @@ def search_full(body: SearchRequest):
     end = start + body.page_size
     page_results = results[start:end]
     total = len(results)
-    total_pages = (total + body.page_size - 1) // body.page_size
+    total_pages = (total + body.page_size - 1) // body.page_size if body.page_size else 0
 
     # Step 3 — enrich only current page
     t1 = time.time()
@@ -154,7 +147,6 @@ def search_full(body: SearchRequest):
                 result['release_year'] = tmdb_data.get('release_year')
             providers, _ = get_watch_providers(result['id'], 'movie')
             result['providers'] = providers or []
-            result['trailer_url'] = get_movie_trailer(result['id'])
 
         elif result['content_type'] == 'anime':
             mal_id = result['id'].replace('anime_', '')
@@ -171,7 +163,8 @@ def search_full(body: SearchRequest):
         polarity, snippets = get_sentiment(
             result['id'], result['title'],
             tmdb_id=tmdb_id,
-            content_type=result['content_type']
+            content_type=result['content_type'],
+            fetch_missing=False
         )
         result['polarity'] = clean(polarity)
         result['snippets'] = snippets or []
@@ -198,15 +191,21 @@ def search_full(body: SearchRequest):
         "total_pages": total_pages,
         "total": total
     }
+    if total == 0:
+        response_data["message"] = "Couldn't find a good match. Try a clearer mood or genre."
 
-    print(f"Time to build dict: {time.time() - t2:.4f}s")
+    print(f"Time to build dict: {time.time() - t2:.4f}s",  flush=True)
+
+    print(f"REQUEST ENDING, total internal time: {time.time() - request_start:.2f}s",  flush=True)
 
     return response_data
 
 @app.get("/trailer/{tmdb_id}")
 def get_trailer(tmdb_id: str):
-    from src.apis import get_movie_trailer
     trailer_url = get_movie_trailer(tmdb_id)
     return {"trailer_url": trailer_url}
 
+@app.get("/ping")
+def ping():
+    return {"status": "ok"}
 
