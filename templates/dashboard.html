@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MoodWatch Evaluation Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+            background: #f5f7fb;
+            color: #172033;
+        }
+        header {
+            padding: 28px 32px 18px;
+            background: #ffffff;
+            border-bottom: 1px solid #dfe5ef;
+        }
+        h1 {
+            margin: 0 0 6px;
+            font-size: 28px;
+        }
+        .subtext {
+            margin: 0;
+            color: #64748b;
+            font-size: 14px;
+        }
+        main {
+            max-width: 1180px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 16px;
+            margin-bottom: 22px;
+        }
+        .card {
+            background: #ffffff;
+            border: 1px solid #dfe5ef;
+            border-radius: 8px;
+            padding: 18px;
+        }
+        .card-label {
+            color: #64748b;
+            font-size: 13px;
+            margin-bottom: 8px;
+        }
+        .card-value {
+            font-size: 34px;
+            font-weight: 700;
+        }
+        .panel {
+            background: #ffffff;
+            border: 1px solid #dfe5ef;
+            border-radius: 8px;
+            padding: 18px;
+            margin-bottom: 22px;
+        }
+        .chart-wrap {
+            height: 360px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        th, td {
+            padding: 12px 10px;
+            border-bottom: 1px solid #e8edf5;
+            text-align: left;
+            vertical-align: top;
+        }
+        th {
+            color: #475569;
+            background: #f8fafc;
+            font-weight: 700;
+        }
+        .metric {
+            font-variant-numeric: tabular-nums;
+            font-weight: 700;
+        }
+        .ids {
+            color: #64748b;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .warning {
+            display: none;
+            margin-bottom: 22px;
+            padding: 14px 16px;
+            border: 1px solid #f2c94c;
+            background: #fff9db;
+            border-radius: 8px;
+            color: #7c5c00;
+        }
+        .loading {
+            padding: 28px;
+            color: #64748b;
+            text-align: center;
+        }
+        @media (max-width: 760px) {
+            header { padding: 22px 18px 14px; }
+            main { padding: 16px; }
+            .cards { grid-template-columns: 1fr; }
+            table { font-size: 13px; }
+            th, td { padding: 10px 8px; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>MoodWatch Evaluation Dashboard</h1>
+        <p class="subtext">Recall@10 and Precision@R are the headline metrics. Precision@10 is shown for reference but is capped at (relevant&nbsp;titles&nbsp;/&nbsp;10) per query, so it reads low by construction.</p>
+    </header>
+
+    <main>
+        <div id="warning" class="warning"></div>
+
+        <section class="cards">
+            <div class="card">
+                <div class="card-label">Mean Recall@10</div>
+                <div id="meanRecall" class="card-value">--</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Mean Precision@R</div>
+                <div id="meanPrecisionR" class="card-value">--</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Mean Precision@10 <span style="font-weight:400;color:#94a3b8;">(capped)</span></div>
+                <div id="meanPrecision" class="card-value">--</div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="chart-wrap">
+                <canvas id="metricsChart"></canvas>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div id="tableWrap" class="loading">Loading evaluation metrics...</div>
+        </section>
+    </main>
+
+    <script>
+        let metricsChart = null;
+
+        function pct(value) {
+            return `${Math.round((value || 0) * 100)}%`;
+        }
+
+        function escHtml(value) {
+            return String(value || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function renderCards(aggregate) {
+            document.getElementById('meanRecall').textContent = pct(aggregate.mean_recall);
+            document.getElementById('meanPrecisionR').textContent = pct(aggregate.mean_precision_at_r);
+            document.getElementById('meanPrecision').textContent = pct(aggregate.mean_precision);
+        }
+
+        function renderWarnings(data) {
+            const warning = document.getElementById('warning');
+            const unresolved = data.unresolved_titles || [];
+            const outOfCatalog = data.out_of_catalog || [];
+            if (unresolved.length === 0 && outOfCatalog.length === 0) {
+                warning.style.display = 'none';
+                return;
+            }
+            const messages = [];
+            if (unresolved.length) {
+                messages.push(`Unresolved titles: ${unresolved.join(', ')}`);
+            }
+            if (outOfCatalog.length) {
+                messages.push(`Resolved but not present in recommendation CSV catalog: ${outOfCatalog.map(item => `${item.title} (${item.id})`).join(', ')}`);
+            }
+            warning.style.display = 'block';
+            warning.textContent = messages.join(' | ');
+        }
+
+        function renderChart(rows) {
+            const labels = rows.map(row => row.query);
+            const ctx = document.getElementById('metricsChart');
+            if (metricsChart) metricsChart.destroy();
+            metricsChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [
+                        { label: 'Recall@10', data: rows.map(row => row.recall), backgroundColor: '#16a34a' },
+                        { label: 'Precision@R', data: rows.map(row => row.precision_at_r), backgroundColor: '#2563eb' },
+                        { label: 'Precision@10', data: rows.map(row => row.precision), backgroundColor: '#cbd5e1' }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 1,
+                            ticks: { callback: value => `${value * 100}%` }
+                        }
+                    },
+                    plugins: {
+                        legend: { position: 'bottom' }
+                    }
+                }
+            });
+        }
+
+        function renderTable(rows) {
+            const html = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Query</th>
+                            <th>R</th>
+                            <th>Recall@10</th>
+                            <th>Precision@R</th>
+                            <th>Precision@10</th>
+                            <th>Hits</th>
+                            <th>Missed Relevant IDs</th>
+                            <th>Out of Catalog</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows.map(row => `
+                            <tr>
+                                <td>${escHtml(row.query)}</td>
+                                <td class="metric">${row.r}</td>
+                                <td class="metric">${pct(row.recall)}</td>
+                                <td class="metric">${pct(row.precision_at_r)}</td>
+                                <td class="metric">${pct(row.precision)}</td>
+                                <td class="ids">${row.hits.length ? row.hits.map(escHtml).join('<br>') : 'None'}</td>
+                                <td class="ids">${row.missed_ids.length ? row.missed_ids.map(escHtml).join('<br>') : 'None'}</td>
+                                <td class="ids">${row.out_of_catalog_ids.length ? row.out_of_catalog_ids.map(escHtml).join('<br>') : 'None'}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            document.getElementById('tableWrap').className = '';
+            document.getElementById('tableWrap').innerHTML = html;
+        }
+
+        async function loadMetrics() {
+            try {
+                const response = await fetch('/dashboard/metrics');
+                const data = await response.json();
+                renderWarnings(data);
+                renderCards(data.aggregate);
+                renderChart(data.per_query);
+                renderTable(data.per_query);
+            } catch (error) {
+                document.getElementById('tableWrap').innerHTML = 'Failed to load metrics.';
+            }
+        }
+
+        loadMetrics();
+    </script>
+</body>
+</html>
