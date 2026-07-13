@@ -986,7 +986,7 @@
         await fetch('/feedback', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ title_id: titleId, feedback_type: type })
+            body: JSON.stringify({ title_id: titleId, feedback_type: type, query: currentQuery })
         });
     } catch (e) {
         console.error('Feedback failed:', e);

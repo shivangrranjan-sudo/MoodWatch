@@ -58,26 +58,43 @@ def init_db():
 
     _ensure_column(cursor, "metadata_cache", "release_year", "TEXT")
     _ensure_column(cursor, "metadata_cache", "trailer_url", "TEXT")
-    
+    # Scope feedback to the query it was given for, so a thumbs-up on one query
+    # doesn't boost that title across unrelated queries.
+    _ensure_column(cursor, "feedback", "query", "TEXT")
+
     conn.commit()
     conn.close()
 
 
-def save_feedback(title_id, feedback_type):
+def _normalize_query_key(query):
+    return (query or "").strip().lower()
+
+
+def save_feedback(title_id, feedback_type, query=None):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT INTO feedback (title_id, feedback_type, timestamp)
-        VALUES (?, ?, ?)
-    ''', (title_id, feedback_type, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        INSERT INTO feedback (title_id, feedback_type, query, timestamp)
+        VALUES (?, ?, ?, ?)
+    ''', (title_id, feedback_type, _normalize_query_key(query),
+          datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
     conn.commit()
     conn.close()
 
 
-def load_feedback():
+def load_feedback(query=None):
+    """Return (liked, disliked) title ids. If a query is given, only feedback
+    recorded for that same query is returned, so relevance feedback stays scoped
+    to its query instead of leaking into every other search."""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT title_id, feedback_type FROM feedback')
+    if query is None:
+        cursor.execute('SELECT title_id, feedback_type FROM feedback')
+    else:
+        cursor.execute(
+            'SELECT title_id, feedback_type FROM feedback WHERE query = ?',
+            (_normalize_query_key(query),),
+        )
     rows = cursor.fetchall()
     conn.close()
     liked = [r[0] for r in rows if r[1] == 'like']
